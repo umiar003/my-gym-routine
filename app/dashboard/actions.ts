@@ -8,6 +8,51 @@ type ActionResult = {
   error?: string;
 };
 
+type CycleReference = {
+  id: string;
+  user_id: string;
+  completed_at: string | null;
+};
+
+type DayWithCycle = {
+  id: string;
+  cycle_id: string;
+  completed: boolean;
+  cycle: CycleReference;
+};
+
+type TaskSummary = {
+  id: string;
+  day_id: string;
+  completed: boolean;
+};
+
+type CycleSummary = {
+  id: string;
+  user_id: string;
+  sequence_number: number;
+  completed_at: string | null;
+};
+
+function getCycleReference(value: unknown): CycleReference {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (!candidate) {
+    throw new Error("Cycle missing for day");
+  }
+  const cycle = candidate as CycleReference;
+  return cycle;
+}
+
+function normalizeDayWithCycle(record: unknown): DayWithCycle {
+  const raw = record as Record<string, unknown>;
+  return {
+    id: raw.id as string,
+    cycle_id: raw.cycle_id as string,
+    completed: Boolean(raw.completed),
+    cycle: getCycleReference(raw.cycle),
+  };
+}
+
 async function requireUser() {
   const supabase = await createSupabaseServerComponentClient();
   const {
@@ -31,7 +76,7 @@ export async function toggleDayCompletion(
 
     const { data: dayRecord, error: dayError } = await supabase
       .from("days")
-      .select("id, cycle_id, cycle:cycles(id, user_id, completed_at)")
+      .select("id, cycle_id, completed, cycle:cycles(id, user_id, completed_at)")
       .eq("id", dayId)
       .single();
 
@@ -39,11 +84,13 @@ export async function toggleDayCompletion(
       throw new Error("Day not found");
     }
 
-    if (dayRecord.cycle.user_id !== user.id) {
+    const typedDay = normalizeDayWithCycle(dayRecord);
+
+    if (typedDay.cycle.user_id !== user.id) {
       throw new Error("Access denied");
     }
 
-    if (dayRecord.cycle.completed_at) {
+    if (typedDay.cycle.completed_at) {
       throw new Error("Cycle already archived");
     }
 
@@ -65,13 +112,15 @@ export async function toggleDayCompletion(
       throw taskFetchError;
     }
 
-    if (taskIds && taskIds.length > 0) {
+    const taskIdList = (taskIds as TaskSummary[] | null) ?? [];
+
+    if (taskIdList.length > 0) {
       const { error: taskUpdateError } = await supabase
         .from("tasks")
         .update({ completed })
         .in(
           "id",
-          taskIds.map((task) => task.id)
+          taskIdList.map((task) => task.id)
         );
 
       if (taskUpdateError) {
@@ -106,21 +155,25 @@ export async function toggleTaskCompletion(
       throw new Error("Task not found");
     }
 
+    const taskSummary = taskRecord as TaskSummary;
+
     const { data: dayRecord, error: dayError } = await supabase
       .from("days")
       .select("id, completed, cycle_id, cycle:cycles(id, user_id, completed_at)")
-      .eq("id", taskRecord.day_id)
+      .eq("id", taskSummary.day_id)
       .single();
 
     if (dayError || !dayRecord) {
       throw new Error("Day not found");
     }
 
-    if (dayRecord.cycle.user_id !== user.id) {
+    const typedDay = normalizeDayWithCycle(dayRecord);
+
+    if (typedDay.cycle.user_id !== user.id) {
       throw new Error("Access denied");
     }
 
-    if (dayRecord.cycle.completed_at) {
+    if (typedDay.cycle.completed_at) {
       throw new Error("Cycle already archived");
     }
 
@@ -136,21 +189,24 @@ export async function toggleTaskCompletion(
     const { data: siblingTasks, error: siblingError } = await supabase
       .from("tasks")
       .select("id, completed")
-      .eq("day_id", dayRecord.id);
+      .eq("day_id", typedDay.id);
 
     if (siblingError || !siblingTasks) {
       throw siblingError ?? new Error("Unable to read tasks");
     }
 
-    const allComplete = siblingTasks.every((task) =>
-      task.id === taskId ? completed : task.completed
-    );
+    const allComplete = (siblingTasks as TaskSummary[]).every((task) => {
+      if (task.id === taskId) {
+        return completed;
+      }
+      return task.completed;
+    });
 
-    if (allComplete !== dayRecord.completed) {
+    if (allComplete !== typedDay.completed) {
       const { error: dayUpdateError } = await supabase
         .from("days")
         .update({ completed: allComplete })
-        .eq("id", dayRecord.id);
+        .eq("id", typedDay.id);
 
       if (dayUpdateError) {
         throw dayUpdateError;
@@ -182,25 +238,29 @@ export async function startNextCycle(currentCycleId: string): Promise<ActionResu
       throw new Error("Cycle not found");
     }
 
-    if (currentCycle.user_id !== user.id) {
+    const cycleSummary = currentCycle as CycleSummary;
+
+    if (cycleSummary.user_id !== user.id) {
       throw new Error("Access denied");
     }
 
-    if (currentCycle.completed_at) {
+    if (cycleSummary.completed_at) {
       throw new Error("Cycle already archived");
     }
 
     const { data: cycleDays, error: cycleDaysError } = await supabase
       .from("days")
       .select("id, day_index, completed")
-      .eq("cycle_id", currentCycle.id)
+      .eq("cycle_id", cycleSummary.id)
       .order("day_index", { ascending: true });
 
     if (cycleDaysError) {
       throw cycleDaysError;
     }
 
-    const dayList = cycleDays ?? [];
+    const dayList =
+      (cycleDays as { id: string; day_index: number; completed: boolean }[]) ??
+      [];
 
     const allDaysComplete =
       dayList.length === 7 && dayList.every((day) => day.completed);
@@ -212,7 +272,7 @@ export async function startNextCycle(currentCycleId: string): Promise<ActionResu
     const { error: archiveError } = await supabase
       .from("cycles")
       .update({ completed_at: new Date().toISOString() })
-      .eq("id", currentCycle.id);
+      .eq("id", cycleSummary.id);
 
     if (archiveError) {
       throw archiveError;
@@ -222,7 +282,7 @@ export async function startNextCycle(currentCycleId: string): Promise<ActionResu
       .from("cycles")
       .insert({
         user_id: user.id,
-        sequence_number: currentCycle.sequence_number + 1,
+        sequence_number: cycleSummary.sequence_number + 1,
         started_at: new Date().toISOString(),
       })
       .select("id")
@@ -265,13 +325,16 @@ export async function startNextCycle(currentCycleId: string): Promise<ActionResu
         throw tasksError;
       }
 
-      const dayIndexLookup = new Map(dayList.map((day) => [day.id, day.day_index]));
+      const dayIndexLookup = new Map(
+        dayList.map((day) => [day.id, day.day_index] as const)
+      );
       taskTemplates =
-        taskRows?.map((task) => ({
-          dayIndex: dayIndexLookup.get(task.day_id) ?? 0,
-          title: task.title,
-          description: task.description,
-        })) ?? [];
+        (taskRows as { day_id: string; title: string; description: string | null }[])
+          ?.map((task) => ({
+            dayIndex: dayIndexLookup.get(task.day_id) ?? 0,
+            title: task.title,
+            description: task.description,
+          })) ?? [];
     }
 
     if (taskTemplates.length > 0) {

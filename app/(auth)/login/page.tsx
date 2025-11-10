@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { Suspense, FormEvent, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
 import { AuthCard } from "@/components/ui/auth-card";
 import { createSupabaseBrowserClient } from "@/lib/supabaseBrowserClient";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -112,3 +112,10 @@ export default function LoginPage() {
   );
 }
 
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
