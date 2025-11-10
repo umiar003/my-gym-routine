@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerComponentClient } from "@/lib/supabaseClient";
+import { getDefaultTasksForDay } from "@/lib/defaultTasks";
 
 type ActionResult = {
   success: boolean;
@@ -34,6 +35,11 @@ type CycleSummary = {
   completed_at: string | null;
 };
 
+type DaySeed = {
+  id: string;
+  day_index: number;
+};
+
 function getCycleReference(value: unknown): CycleReference {
   const candidate = Array.isArray(value) ? value[0] : value;
   if (!candidate) {
@@ -51,6 +57,33 @@ function normalizeDayWithCycle(record: unknown): DayWithCycle {
     completed: Boolean(raw.completed),
     cycle: getCycleReference(raw.cycle),
   };
+}
+
+async function insertDefaultTasks(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerComponentClient>>,
+  days: DaySeed[]
+) {
+  if (!days.length) {
+    return;
+  }
+
+  const payload = days.flatMap((day) =>
+    getDefaultTasksForDay(day.day_index).map((title) => ({
+      day_id: day.id,
+      title,
+      description: null,
+      completed: false,
+    }))
+  );
+
+  if (!payload.length) {
+    return;
+  }
+
+  const { error } = await supabase.from("tasks").insert(payload);
+  if (error) {
+    throw error;
+  }
 }
 
 async function requireUser() {
@@ -307,72 +340,13 @@ export async function startNextCycle(currentCycleId: string): Promise<ActionResu
       throw newDaysError ?? new Error("Unable to create days for new cycle");
     }
 
-    let taskTemplates: {
-      dayIndex: number;
-      title: string;
-      description: string | null;
-    }[] = [];
-
-    const dayIds = dayList.map((day) => day.id);
-    if (dayIds.length > 0) {
-      const { data: taskRows, error: tasksError } = await supabase
-        .from("tasks")
-        .select("day_id, title, description")
-        .in("day_id", dayIds)
-        .order("created_at", { ascending: true });
-
-      if (tasksError) {
-        throw tasksError;
-      }
-
-      const dayIndexLookup = new Map(
-        dayList.map((day) => [day.id, day.day_index] as const)
-      );
-      taskTemplates =
-        (taskRows as { day_id: string; title: string; description: string | null }[])
-          ?.map((task) => ({
-            dayIndex: dayIndexLookup.get(task.day_id) ?? 0,
-            title: task.title,
-            description: task.description,
-          })) ?? [];
-    }
-
-    if (taskTemplates.length > 0) {
-      const dayIndexToId = new Map(
-        newDays.map((day) => [day.day_index, day.id] as const)
-      );
-
-      const tasksToInsert = taskTemplates
-        .map((task) => {
-          const newDayId = dayIndexToId.get(task.dayIndex);
-          if (!newDayId) {
-            return null;
-          }
-
-          return {
-            day_id: newDayId,
-            title: task.title,
-            description: task.description,
-            completed: false,
-          };
-        })
-        .filter(Boolean) as {
-        day_id: string;
-        title: string;
-        description: string | null;
-        completed: boolean;
-      }[];
-
-      if (tasksToInsert.length > 0) {
-        const { error: insertTasksError } = await supabase
-          .from("tasks")
-          .insert(tasksToInsert);
-
-        if (insertTasksError) {
-          throw insertTasksError;
-        }
-      }
-    }
+    await insertDefaultTasks(
+      supabase,
+      (newDays as { id: string; day_index: number }[]).map((day) => ({
+        id: day.id,
+        day_index: day.day_index,
+      }))
+    );
 
     await revalidatePath("/dashboard");
     return { success: true };

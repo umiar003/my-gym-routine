@@ -1,0 +1,77 @@
+export const DEFAULT_DAY_TASKS: string[][] = [
+  [
+    "Warm Up",
+    "None Enjoy",
+    "Abs Excercise",
+    "Boxing with dumbles + Air",
+    "Boxing on Bag (100 punches)",
+    "Kicks in Air",
+    "100 PushUps",
+    "Chest and triceps",
+  ],
+  [
+    "Warm Up",
+    "None Enjoy",
+    "Special Abs Excercise-1",
+    "Boxing with dumbles + Air",
+    "Slow Boxing, all 4",
+    "Kicks on Boxing Bag",
+    "100 PushUps",
+    "Back and biceps",
+  ],
+  [
+    "Light Warm Up",
+    "Running",
+    "Abs Excercise",
+    "Boxing with dumbles + Air",
+    "None Enjoy",
+    "None Enjoy",
+    "Pull Ups",
+    "Shoulders, forearms and abs",
+  ],
+  [
+    "Warm Up",
+    "None Enjoy",
+    "Special Abs Excercise-2",
+    "Boxing with dumbles + Air",
+    "Slow Boxing, all 4",
+    "Kicks on Boxing Bag",
+    "100 PushUps",
+    "Chest and triceps",
+  ],
+  [
+    "Light Warm Up",
+    "Running",
+    "Abs Excercise",
+    "Boxing with dumbles + Air",
+    "None Enjoy",
+    "None Enjoy",
+    "Pull Ups",
+    "Legs",
+  ],
+  [
+    "Warm Up",
+    "None Enjoy",
+    "Special Abs Excercise-2",
+    "Boxing with dumbles + Air",
+    "Boxing on Bag (100 punches)",
+    "Kicks in Air",
+    "100 PushUps",
+    "Back and biceps",
+  ],
+  [
+    "Light Warm Up",
+    "Sprint",
+    "Abs Excercise",
+    "Boxing with dumbles + Air",
+    "Boxing on Bag (100 punches)",
+    "None Enjoy",
+    "100 PushUps",
+    "Shoulders, forearms and triceps",
+  ],
+];
+
+export function getDefaultTasksForDay(dayIndex: number): string[] {
+  return DEFAULT_DAY_TASKS[dayIndex - 1] ?? [];
+}
+
