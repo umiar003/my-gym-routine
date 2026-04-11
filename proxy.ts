@@ -5,7 +5,7 @@ import { createSupabaseMiddlewareClient } from "@/lib/supabaseClient";
 const AUTH_PAGES = ["/login", "/signup"];
 const PROTECTED_PREFIXES = ["/dashboard"];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const response = NextResponse.next({
     request: {
       headers: request.headers,
